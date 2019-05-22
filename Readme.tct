@@ -1,0 +1,107 @@
+# Docker
+
+## Network
+
+### Bridge
+Bridge network działają jedynie na pojedynczej maszynie. Przy uruchamianiu Dockera tworzona jest `default bridge network`
+
+**Default**
+Sieć w której działają kontenery dla których nie sprecyzowano sieci. Nie jest uruchamiany server dns, przy pingowaniu innego kontenera po nazwie nie dostaniemy odpowiedzi, jest to jedynie możliwe po adresie ip. Dostęp do innych konenerów możliwy jest jedynie przy użyciu adresu ip i na port który został wystawiony(-p)
+   ```
+    # cat /etc/hosts
+127.0.0.1       localhost
+::1     localhost ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+172.18.0.3      b3c91342d587
+  ```
+  **User defined network**
+  
+Kontenery połączone do tej samej sieci udostępniają sobie wszystkie porty, nie wystawiając ich na zewnątrz(chyba że użyjemy -p).  Kontener może byc połączony do wielu sieci
+
+> User-defined bridges provide automatic DNS resolution between containers.
+
+   Zawartość pliku /etc/hosts jest identyczna jak przy default, jednak dzięki serwerowi DNS gdy spingujemy inny kontener otrzymamy odpowiedź. Jeśli chcemy wysłać zapytanie do konetnera o nazwie `backend`  w którym serwer działa na porcie 8080, zapytanie curl należy wsyłąć  pod adres http/backend:8080/. Jeśli jednak kontener jest w innej sieci nie można go spingować nawet znając jego adres ip
+
+> Containers can be attached and detached from user-defined networks on the fly.
+
+W przeciwieństwie do default bridge niemożliwe jest udostępnianie zmiennych środowiskowych przy użyciu `--link` można to jednak rozwiązać :
+
+>    Multiple containers can mount a file or directory containing the shared information, using a Docker volume.
+    -   Multiple containers can be started together using  `docker-compose`  and the compose file can define the shared variables.
+    -   You can use swarm services instead of standalone containers, and take advantage of shared  [secrets](https://docs.docker.com/engine/swarm/secrets/)  and  [configs](https://docs.docker.com/engine/swarm/configs/).
+
+      
+  ```
+  docker network create [OPTIONS] NETWORK //tworzy sieć
+ --network my-net 
+docker network disconnect my-net my-nginx
+```
+### Inne rodzaje sieci
+**Overlay** - Tworzy sieć pomiędzy wieloma uruchomionymi maszynami z Docker deamon
+
+**Host** - wszystkie kontenery są uruchamiane w sposób imitujący ich działanie bez kontenera i dockera, tak jakby były uruchamiane przez system, (wykorzystywane przy inżynierce), działa tylko na Linuxie!   
+    `--network host`
+    
+   **Macvlan** -
+    
+> Some applications, especially legacy applications or applications
+> which monitor network traffic, expect to be directly connected to the
+> physical network
+
+**None** -  tworzony jest jedynie loopback, `--network none`
+
+### Linking 
+
+|Warning: Zaleca się użycie user-defined network |
+| --- |
+Dotyczy default bridge!
+`--link <name or id>:alias`
+Mechaniz linkowania kontenerów pozwala na dostęp do zmiennych środowiskowych oraz dodaje adres hosta do /etc/hosts.
+Tworzone są również zmienne środowiskowe dotyczące adresu port itp nie są one jednak w przeciwieństwie do /etc/hosts aktualizowane! 
+```
+$docker run   --name link_d --link link_b  patrykzygmunt/gcp_node:httpreq2 env
+   ...
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+HOSTNAME=bde5e60b59d6
+LINK_B_PORT=tcp://172.18.0.2:3000
+LINK_B_PORT_3000_TCP=tcp://172.18.0.2:3000
+LINK_B_PORT_3000_TCP_ADDR=172.18.0.2
+LINK_B_PORT_3000_TCP_PORT=3000
+LINK_B_PORT_3000_TCP_PROTO=tcp
+LINK_B_NAME=/link_d/link_b
+LINK_B_ENV_NODE_VERSION=8.11.4
+LINK_B_ENV_YARN_VERSION=1.6.0
+NODE_VERSION=8.11.4
+YARN_VERSION=1.6.0
+HOME=/root
+```
+dzięki /etc/hosts możemy wykownywać zapytania do zlinkowanego kontenera po jego nazwie lub aliasie.
+```
+root@c8cffbb57c5e:/app# cat /etc/hosts
+127.0.0.1       localhost
+::1     localhost ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+172.18.0.2      link_b 0b40e5a1bfa5       //!!!!!!!
+172.18.0.3      c8cffbb57c5e
+```
+
+
+### Testy
+Przy użyciu Node.js stworzony został serwer mogący wykonywać zapytania pod adres podany w parametrze ([kod](https://github.com/Patryk-Zygmunt/pdev-gcloud/blob/master/start/A/index.js)).  
+Uruchomine zostały w tej samej sieci dwa kontenery z serwerem. 
+`docker run -d --name node_b --net test patrykzygmunt/gcp_node:httpreq2`
+Z wewnątrz kontenera node_b wykonane zostało zapytanie curlem do node_a oraz do localhost z adresem node_a w parametrze zapytania `/req/?path=http/node_a:3000/`, oba zwróciły poprawny wynik. Kontener został prawidłowo odpytany zarówno z poziomu konsoli jak i serwera node.  Zapytanie o dns `path=http://link_b:3000/host/node_b` zwróciło adres ip kontenera node_b.
+
+Te same działania ale przy wykorzystaniu ``--link`` oraz default bridge, różniły się tylko przy zapytaniu o dns(zwracały undefined), gdyż w tym wypadku korzystamy z /etc/hosts a nie dns, pozostałe zapytaniu zwróciły również poprawne wyniki.  
+
+
+## Tricks
+
+ - Uruchomienie kontenera alpine interaktywnie w tle(-d, -it)
+  `docker run -dit --name alpine1 alpine ash` ,  aby się połączyć wystarczy wpisać `docker attach alpine1`

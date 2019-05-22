@@ -1,0 +1,15 @@
+server:
+    port: 8070
+spring:
+  jpa:
+    pen-in-view: true
+    database: POSTGRESQL
+    show-sql: true
+    hibernate:
+      ddl-auto: create-drop
+  datasource:
+    platform: postgres
+    url: jdbc:postgresql://localhost:5432/company
+    username: postgres
+    password: postgres
+    driverClassName: org.postgresql.Driver
